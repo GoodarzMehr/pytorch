@@ -63,6 +63,46 @@ class C10_CUDA_API CUDAError : public c10::Error {
     }                                                          \
   } while (0)
 
+// Indicates that a CUDA error is handled in a non-standard way
+#define C10_CUDA_ERROR_HANDLED(EXPR) EXPR
+
+// Intentionally ignore a CUDA error
+#define C10_CUDA_IGNORE_ERROR(EXPR)                             \
+  do {                                                          \
+    const cudaError_t __err = EXPR;                             \
+    if (C10_UNLIKELY(__err != cudaSuccess)) {                   \
+      cudaError_t error_unused C10_UNUSED = cudaGetLastError(); \
+      (void)error_unused;                                       \
+    }                                                           \
+  } while (0)
+
+// Clear the last CUDA error
+#define C10_CUDA_CLEAR_ERROR()                                \
+  do {                                                        \
+    cudaError_t error_unused C10_UNUSED = cudaGetLastError(); \
+    (void)error_unused;                                       \
+  } while (0)
+
+// This should be used directly after every kernel launch to ensure
+// the launch happened correctly and provide an early, close-to-source
+// diagnostic if it didn't.
+#define C10_CUDA_KERNEL_LAUNCH_CHECK() C10_CUDA_CHECK(cudaGetLastError())
+
+/// Launches a CUDA kernel appending to it all the information need to handle
+/// device-side assertion failures. Checks that the launch was successful.
+#define TORCH_DSA_KERNEL_LAUNCH(                                      \
+    kernel, blocks, threads, shared_mem, stream, ...)                 \
+  do {                                                                \
+    auto& launch_registry =                                           \
+        c10::cuda::CUDAKernelLaunchRegistry::get_singleton_ref();     \
+    kernel<<<blocks, threads, shared_mem, stream>>>(                  \
+        __VA_ARGS__,                                                  \
+        launch_registry.get_uvm_assertions_ptr_for_current_device(),  \
+        launch_registry.insert(                                       \
+            __FILE__, __FUNCTION__, __LINE__, #kernel, stream.id())); \
+    C10_CUDA_KERNEL_LAUNCH_CHECK();                                   \
+  } while (0)
+
 // This should be used directly after every kernel launch to ensure
 // the launch happened correctly and provide an early, close-to-source
 // diagnostic if it didn't.
